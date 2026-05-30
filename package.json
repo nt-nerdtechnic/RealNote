@@ -1,0 +1,28 @@
+{
+  "name": "meeting-minutes-asr",
+  "version": "0.1.0",
+  "private": true,
+  "description": "macOS desktop meeting recorder and minutes generator powered by Breeze-ASR",
+  "main": "out/main/index.js",
+  "scripts": {
+    "predev": "pkill -f 'electron-vite' 2>/dev/null; pkill -f 'meeting_minutes_backend' 2>/dev/null; pkill -f 'meeting-minutes-asr-electron' 2>/dev/null; sleep 0.5; exit 0",
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
+    "typecheck:web": "vue-tsc --noEmit -p tsconfig.web.json",
+    "typecheck": "pnpm run typecheck:node && pnpm run typecheck:web",
+    "backend:dev": "uv --project backend run python -m meeting_minutes_backend",
+    "whisperlivekit:dev": "uv --project backend run whisperlivekit-server --host 127.0.0.1 --port 8020 --backend faster-whisper --model small --lan zh --min-chunk-size 1 --pcm-input"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@vitejs/plugin-vue": "^5.2.1",
+    "electron": "^33.2.1",
+    "electron-vite": "^2.3.0",
+    "typescript": "^5.7.2",
+    "vite": "^5.4.11",
+    "vue": "^3.5.13",
+    "vue-tsc": "^2.1.10"
+  }
+}

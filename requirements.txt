@@ -1,0 +1,12 @@
+accelerate
+datasets[audio]
+numpy
+openai
+pydub
+python-dotenv
+rich
+soundfile
+sounddevice
+torch
+torchaudio
+transformers

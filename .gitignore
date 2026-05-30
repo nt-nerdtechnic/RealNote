@@ -1,0 +1,59 @@
+# --- OS Temp Files ---
+.DS_Store
+Thumbs.db
+
+# --- Node.js / Electron ---
+node_modules/
+dist/
+out/
+out-tsc/
+*.log
+.eslintcache
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+.env
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.swp
+
+# --- UV (Python package manager) ---
+.python-version
+uv.lock
+
+# --- Project Specific ---
+# User settings (may contain API keys) — copy from data/settings.example.json
+data/settings.json
+# User-specific data
+data/glossary.txt
+data/llm_opt_state.json
+# Ignore all actual meeting data, but keep the folder structure if needed
+data/input/*
+!data/input/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+data/output/*
+!data/output/.gitkeep
+
+# Models (if downloaded locally into the project)
+models/
+*.bin
+*.pt
+*.onnx
+
+# --- IDEs ---
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+.claude/
+.cursor/
+
+# --- Benchmarks ---
+benchmark/

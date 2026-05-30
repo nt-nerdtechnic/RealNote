@@ -1,0 +1,61 @@
+{
+  "asr.no_speech_threshold": 0.9,
+  "asr.nsp_gray_min_len": 4,
+  "context.max_chars": 40,
+  "lang.switch_confirm": 2,
+  "lang.whitelist": [
+    "zh",
+    "en",
+    "yue",
+    "ja",
+    "ko"
+  ],
+  "queue.max_backlog": 3,
+  "audio.rms_silence_threshold": 0.005,
+  "rate.fallback": 30.0,
+  "vad.speech_threshold": 0.5,
+  "preview.window_seconds": 5.0,
+  "vad.silence_threshold": 0.35,
+  "vad.silence_frames": 9,
+  "vad.min_speech_seconds": 1.0,
+  "vad.peak_ratio": 0.5,
+  "vad.force_flush_seconds": 2.5,
+  "vad.leading_silence_trim_seconds": 0.5,
+  "vad.min_speech_in_chunk_seconds": 0.3,
+  "chunk.overlap_seconds": 0.5,
+  "rate.hard_limit": 50.0,
+  "rate.min_samples": 5,
+  "rate.sigma": 5.0,
+  "rate.min_seg_duration": 0.3,
+  "rate.repeat_in_chunk_threshold": 3,
+  "segment.min_text_len": 2,
+  "segment.merge_max_gap_seconds": 0.3,
+  "segment.merge_min_duration_seconds": 1.0,
+  "preview.interval_seconds": 0.3,
+  "preview.min_audio_seconds": 0.5,
+  "preview.silence_clear_seconds": 1.0,
+  "correction.model_repo": [
+    "bartowski/Qwen2.5-3B-Instruct-GGUF"
+  ],
+  "correction.model_file": [
+    "Qwen2.5-3B-Instruct-Q4_K_M.gguf"
+  ],
+  "correction.batch_lines": 3,
+  "correction.idle_seconds": 3.0,
+  "correction.parallel_workers": 1,
+  "correction.glossary_path": [
+    "data/glossary.txt"
+  ],
+  "correction.n_ctx": 512,
+  "correction.n_gpu_layers": -1,
+  "correction.timeout_seconds": 60.0,
+  "correction.context_lines": 2,
+  "correction.min_confidence": 0.5,
+  "correction.cache_size": 256,
+  "correction.summary_enabled": "true",
+  "correction.summary_idle_seconds": 15.0,
+  "correction.backend": "api",
+  "correction.api_base_url": "https://api.openai.com/v1",
+  "correction.api_key": "",
+  "correction.api_model": "gpt-4o-mini"
+}
