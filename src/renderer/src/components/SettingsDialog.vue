@@ -107,9 +107,42 @@ const LOCAL_ONLY_KEYS = new Set([
   'correction.n_ctx', 'correction.n_gpu_layers', 'correction.parallel_workers',
 ])
 const CLOUD_ONLY_KEYS = new Set([
-  'correction.api_base_url', 'correction.api_key', 'correction.api_model',
+  'correction.api_base_url', 'correction.api_key', 'correction.api_model', 'correction.api_format',
 ])
 const HIDDEN_KEYS = new Set(['correction.backend'])
+
+// ---------------------------------------------------------------------------
+// API Provider 預設值
+// ---------------------------------------------------------------------------
+interface ApiPreset {
+  label: string
+  url: string
+  model: string
+  format: 'openai' | 'anthropic'
+  note?: string
+}
+
+const API_PRESETS: ApiPreset[] = [
+  { label: '— 自訂 —',    url: '', model: '', format: 'openai' },
+  { label: 'OpenAI',      url: 'https://api.openai.com/v1',            model: 'gpt-4o-mini',                  format: 'openai',     note: '需付費 API key' },
+  { label: 'Anthropic',   url: 'https://api.anthropic.com/v1',         model: 'claude-haiku-4-5-20251001',    format: 'anthropic',  note: '需付費 API key' },
+  { label: 'Groq',        url: 'https://api.groq.com/openai/v1',       model: 'llama-3.3-70b-versatile',      format: 'openai',     note: '有免費額度' },
+  { label: 'OpenRouter',  url: 'https://openrouter.ai/api/v1',         model: 'openai/gpt-4o-mini',           format: 'openai',     note: '300+ 模型可選' },
+  { label: 'DeepSeek',    url: 'https://api.deepseek.com/v1',          model: 'deepseek-v4-flash',            format: 'openai',     note: '低價高速' },
+  { label: 'MiniMax',     url: 'https://api.minimax.io/anthropic/v1',  model: 'MiniMax-M2.7',                 format: 'anthropic',  note: 'Anthropic-compatible' },
+  { label: 'SiliconFlow', url: 'https://api.siliconflow.cn/v1',        model: 'Qwen/Qwen2.5-7B-Instruct',    format: 'openai',     note: '開源模型托管' },
+]
+
+const selectedPreset = ref('')
+
+function applyPreset(label: string): void {
+  const preset = API_PRESETS.find(p => p.label === label)
+  if (!preset || !preset.url) return
+  values.value['correction.api_base_url'] = preset.url
+  values.value['correction.api_model'] = preset.model
+  values.value['correction.api_format'] = preset.format
+  dirty.value = true
+}
 
 const correctionMode = computed<'local' | 'api'>(() =>
   (values.value['correction.backend'] === 'api') ? 'api' : 'local'
@@ -197,6 +230,27 @@ function groupBy(items: SettingSchema[]): Record<string, SettingSchema[]> {
             class="settings-group"
           >
             <h3 class="group-title">{{ groupName }}</h3>
+
+            <!-- API 校正群組頂部插入 Provider 快速選單 -->
+            <div
+              v-if="groupName === 'API 校正' && correctionMode === 'api'"
+              class="settings-field"
+            >
+              <label class="field-label">
+                <span class="field-name">選擇AI來源</span>
+              </label>
+              <div class="field-input">
+                <select
+                  v-model="selectedPreset"
+                  @change="applyPreset(selectedPreset)"
+                >
+                  <option v-for="p in API_PRESETS" :key="p.label" :value="p.label">
+                    {{ p.label }}{{ p.note ? `　·　${p.note}` : '' }}
+                  </option>
+                </select>
+              </div>
+              <p class="field-hint">選擇 Provider 後自動填入 URL、模型、格式，API key 仍需自行填寫。</p>
+            </div>
 
             <div v-for="item in items" :key="item.key" class="settings-field">
               <label class="field-label">

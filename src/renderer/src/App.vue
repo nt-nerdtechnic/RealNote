@@ -186,7 +186,7 @@ const streamState = ref<StreamState>({
   error: null
 })
 
-const APP_VERSION = '0.4.0'
+const APP_VERSION = '0.4.1'
 
 // ---------------------------------------------------------------------------
 // LLM 可用狀態（連線後讀一次 settings，錄音前就能顯示）

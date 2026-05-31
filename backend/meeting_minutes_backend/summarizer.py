@@ -40,7 +40,7 @@ SYSTEM_PROMPT = """你是專業摘要助理，負責將語音辨識逐字稿整�
 
 
 def summarize_transcript(transcript_text: str, config: dict[str, Any]) -> str | None:
-    """呼叫 correction 設定的 OpenAI-compatible API 產生會議記錄摘要。
+    """呼叫雲端 API 產生會議記錄摘要，支援 OpenAI 與 Anthropic 兩種格式。
 
     僅在 correction.backend=api 且 api_key 有值時執行；否則回 None。
     """
@@ -53,30 +53,56 @@ def summarize_transcript(transcript_text: str, config: dict[str, Any]) -> str | 
     base_url = config.get("correction.api_base_url", "https://api.openai.com/v1").rstrip("/")
     model = config.get("correction.api_model", "gpt-4o-mini")
     timeout = float(config.get("correction.timeout_seconds", 60.0))
+    api_format = config.get("correction.api_format", "openai")
 
-    body = json.dumps({
-        "model": model,
-        "max_tokens": 2048,
-        "system": SYSTEM_PROMPT,
-        "messages": [{"role": "user", "content": f"以下為逐字稿內容：\n\n{transcript_text}"}],
-    }).encode("utf-8")
+    user_content = f"以下為逐字稿內容：\n\n{transcript_text}"
 
-    req = urllib.request.Request(
-        f"{base_url}/messages",
-        data=body,
-        headers={
-            "content-type": "application/json",
-            "x-api-key": api_key,
-            "anthropic-version": "2023-06-01",
-        },
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        result = json.loads(resp.read().decode("utf-8"))
-    for block in (result.get("content") or []):
-        if block.get("type") == "text":
-            return block["text"]
-    return None
+    if api_format == "anthropic":
+        body = json.dumps({
+            "model": model,
+            "max_tokens": 2048,
+            "system": SYSTEM_PROMPT,
+            "messages": [{"role": "user", "content": user_content}],
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            f"{base_url}/messages",
+            data=body,
+            headers={
+                "content-type": "application/json",
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+        for block in (result.get("content") or []):
+            if block.get("type") == "text":
+                return block["text"]
+        return None
+    else:
+        # OpenAI Chat Completions format
+        body = json.dumps({
+            "model": model,
+            "max_tokens": 2048,
+            "messages": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_content},
+            ],
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            f"{base_url}/chat/completions",
+            data=body,
+            headers={
+                "content-type": "application/json",
+                "authorization": f"Bearer {api_key}",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+        return (result.get("choices") or [{}])[0].get("message", {}).get("content")
+
 
 
 def save_minutes(minutes: str, output_dir: Path) -> Path:

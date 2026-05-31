@@ -464,31 +464,65 @@ class LlamaCppLLM:
 # API LLM（OpenAI-compatible，支援 MiniMax / OpenAI / 任何相容端點）
 # ---------------------------------------------------------------------------
 class ApiLLM:
-    """呼叫 OpenAI-compatible chat completion API。
+    """呼叫雲端 LLM API，支援 OpenAI Chat Completions 與 Anthropic Messages 兩種格式。
 
-    不佔本地 GPU，適合搭配本地 ASR 使用（兩者完全不衝突）。
-    支援任何 OpenAI-compatible 端點（OpenAI、MiniMax、Groq 等）。
+    api_format='openai'     → POST /chat/completions，Authorization: Bearer
+    api_format='anthropic'  → POST /messages，x-api-key + anthropic-version
     """
 
-    def __init__(self, base_url: str, api_key: str, model: str, timeout: float = 30.0):
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str,
+        model: str,
+        timeout: float = 30.0,
+        api_format: str = "openai",
+    ):
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
         self._model = model
         self._timeout = timeout
+        self._format = api_format  # "openai" or "anthropic"
 
     def generate(self, prompt: str, max_tokens: int = 300) -> str:
+        if self._format == "anthropic":
+            return self._call_anthropic(prompt, max_tokens)
+        return self._call_openai(prompt, max_tokens)
+
+    def _call_openai(self, prompt: str, max_tokens: int) -> str:
         import urllib.request
 
-        # Anthropic-format endpoint（Token Plan 原生支援）
-        # max_tokens 給足空間讓推理模型寫完思考後輸出 JSON
-        body = json.dumps(
-            {
-                "model": self._model,
-                "max_tokens": 1024,
-                "system": "你是逐字稿校正助手，嚴格依照指令輸出 JSON，不加說明。",
-                "messages": [{"role": "user", "content": prompt}],
-            }
-        ).encode("utf-8")
+        body = json.dumps({
+            "model": self._model,
+            "max_tokens": 1024,
+            "messages": [
+                {"role": "system", "content": "你是逐字稿校正助手，嚴格依照指令輸出 JSON，不加說明。"},
+                {"role": "user", "content": prompt},
+            ],
+        }).encode("utf-8")
+
+        req = urllib.request.Request(
+            f"{self._base_url}/chat/completions",
+            data=body,
+            headers={
+                "content-type": "application/json",
+                "authorization": f"Bearer {self._api_key}",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=self._timeout) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+        return (result.get("choices") or [{}])[0].get("message", {}).get("content", "[]")
+
+    def _call_anthropic(self, prompt: str, max_tokens: int) -> str:
+        import urllib.request
+
+        body = json.dumps({
+            "model": self._model,
+            "max_tokens": 1024,
+            "system": "你是逐字稿校正助手，嚴格依照指令輸出 JSON，不加說明。",
+            "messages": [{"role": "user", "content": prompt}],
+        }).encode("utf-8")
 
         req = urllib.request.Request(
             f"{self._base_url}/messages",
@@ -751,6 +785,7 @@ class CorrectionWorker:
                     api_key=api_key,
                     model=self._config.get("correction.api_model", "gpt-4o-mini"),
                     timeout=float(self._config.get("correction.timeout_seconds", 30.0)),
+                    api_format=self._config.get("correction.api_format", "openai"),
                 )
                 if idx == 1:
                     self._log({"type": "stream.log", "message": f"[correction] API mode — {llm._model} @ {llm._base_url}"})

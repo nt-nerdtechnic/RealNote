@@ -406,6 +406,14 @@ SETTING_DEFS: list[SettingDef] = [
         section="model", group="API 校正",
         help="呼叫 API 時使用的模型 ID（依所選 endpoint 填入）",
     ),
+    SettingDef(
+        key="correction.api_format",
+        label="API 格式",
+        type="string", default="openai",
+        section="model", group="API 校正",
+        choices=["openai", "anthropic"],
+        help="openai = Chat Completions（/chat/completions, Authorization: Bearer）；anthropic = Messages API（/messages, x-api-key）",
+    ),
 ]
 
 

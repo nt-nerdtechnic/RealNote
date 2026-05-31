@@ -57,5 +57,6 @@
   "correction.backend": "api",
   "correction.api_base_url": "https://api.openai.com/v1",
   "correction.api_key": "",
-  "correction.api_model": "gpt-4o-mini"
+  "correction.api_model": "gpt-4o-mini",
+  "correction.api_format": "openai"
 }
