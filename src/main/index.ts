@@ -1,9 +1,14 @@
-import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, session, shell } from 'electron'
+import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, nativeImage, session, shell } from 'electron'
 import { join } from 'node:path'
 import { startBackend, type BackendHandle } from './backend'
 
 // 設定唯一 process title，讓 pkill -f 'meeting-minutes-asr-electron' 能精確識別
 process.title = 'meeting-minutes-asr-electron'
+
+// macOS Dock icon（打包後由 .icns 決定，dev 模式需手動設定）
+if (process.platform === 'darwin') {
+  app.dock.setIcon(nativeImage.createFromPath(join(__dirname, '../../resources/icon.png')))
+}
 
 let backend: BackendHandle | null = null
 let mainWindow: BrowserWindow | null = null
@@ -23,6 +28,7 @@ async function createWindow(): Promise<void> {
     minWidth: 1080,
     minHeight: 700,
     title: 'Meeting Minutes ASR',
+    icon: join(__dirname, '../../resources/icon.png'),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,

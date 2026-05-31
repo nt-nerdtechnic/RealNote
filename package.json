@@ -13,7 +13,33 @@
     "typecheck:web": "vue-tsc --noEmit -p tsconfig.web.json",
     "typecheck": "pnpm run typecheck:node && pnpm run typecheck:web",
     "backend:dev": "uv --project backend run python -m meeting_minutes_backend",
-    "whisperlivekit:dev": "uv --project backend run whisperlivekit-server --host 127.0.0.1 --port 8020 --backend faster-whisper --model small --lan zh --min-chunk-size 1 --pcm-input"
+    "whisperlivekit:dev": "uv --project backend run whisperlivekit-server --host 127.0.0.1 --port 8020 --backend faster-whisper --model small --lan zh --min-chunk-size 1 --pcm-input",
+    "dist": "pnpm build && electron-builder"
+  },
+  "build": {
+    "appId": "com.nerdtechnic.realnote",
+    "productName": "RealNote",
+    "directories": {
+      "output": "dist-release"
+    },
+    "files": [
+      "out/**/*"
+    ],
+    "extraResources": [
+      { "from": "resources/", "to": "resources/" }
+    ],
+    "mac": {
+      "target": "dmg",
+      "icon": "resources/icon.icns"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "resources/icon.png"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "resources/icon.png"
+    }
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
