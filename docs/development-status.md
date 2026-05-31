@@ -5,24 +5,24 @@
 ```
 Electron Main (Node.js)
   └─ spawn ──→ Python FastAPI backend (127.0.0.1:random port)
-                  ├─ /ws          JSON RPC（控制指令 + 事件推送）
-                  └─ /ws/audio    Binary Float32-LE PCM stream
+                  ├─ /ws        JSON RPC (control commands + event push)
+                  └─ /ws/audio  Binary Float32-LE PCM stream
 
 Vue 3 Renderer
-  ├─ useBackend.ts       module-level singleton WebSocket
-  └─ ScriptProcessorNode → /ws/audio（16kHz Float32）
+  ├─ useBackend.ts        module-level WebSocket singleton
+  └─ ScriptProcessorNode  → /ws/audio (16 kHz Float32)
 ```
 
-### 音訊採集流程
+### Audio Capture
 
 ```
-getUserMedia (mic, 16kHz mono)          → GainNode(你)  ─┐
-getDisplayMedia (system audio loopback) → GainNode(對方) ─┤→ ChannelMerger
-                                                           ↓
-                                          ScriptProcessorNode (4096 frames = 256ms)
-                                                           ↓
+getUserMedia (mic, 16 kHz mono)          → GainNode (you)    ─┐
+getDisplayMedia (system audio loopback)  → GainNode (other)  ─┤→ ChannelMerger
+                                                               ↓
+                                          ScriptProcessorNode (4096 frames = 256 ms)
+                                                               ↓
                                           /ws/audio binary WebSocket (Float32-LE)
-                                                           ↓
+                                                               ↓
                                           StreamService.push_pcm()
 ```
 
@@ -30,31 +30,31 @@ getDisplayMedia (system audio loopback) → GainNode(對方) ─┤→ ChannelMe
 
 ```
 push_pcm()
-  └─ 分軌 de-interleave → _TrackBuf[0](你) / _TrackBuf[1](對方)
-       └─ Silero VAD（逐 32ms 幀偵測句尾）
-            └─ flush chunk_NNNNNN.wav（含 0.5s overlap）
+  └─ dual-track de-interleave → _TrackBuf[0] (you) / _TrackBuf[1] (other)
+       └─ Silero VAD (per 32 ms frame, sentence-end detection)
+            └─ flush chunk_NNNNNN.wav (with 0.5 s overlap)
                  └─ _chunk_queue → _asr_worker (thread)
                       └─ FasterWhisperAsr.transcribe()
-                           ├─ MLX path（Apple Silicon）: ProcessPoolExecutor subprocess
-                           └─ faster-whisper path（CPU fallback）
-                      └─ 反幻覺六層過濾 → ITN → 分配 line_id
+                           ├─ MLX path (Apple Silicon): ProcessPoolExecutor subprocess
+                           └─ faster-whisper path (CPU fallback)
+                      └─ 6-layer hallucination filter → ITN → assign line_id
                            └─ emit transcript.segment
 
-並行 Preview:
-  push_pcm() → _preview_buffer（5s 滾動）→ 每 300ms 觸發 tiny ASR → emit transcript.preview
+Parallel preview:
+  push_pcm() → _preview_buffer (5 s rolling) → every 300 ms → tiny ASR → emit transcript.preview
 
-並行 LLM 校正:
-  transcript.segment → CorrectionWorker（批次 3 行，閒置 3s 觸發）
-    → 本地 GGUF（llama-cpp-python）或 OpenAI-compatible API
-    → emit transcript.correction（以 line_id 回綁）
+Parallel LLM correction:
+  transcript.segment → CorrectionWorker (batch 3 lines, idle 3 s trigger)
+    → local GGUF (llama-cpp-python) or OpenAI/Anthropic-compatible API
+    → emit transcript.correction (bound by line_id)
 ```
 
 ---
 
 ## Key Design Decisions
 
-### 雙 WebSocket 分離
-`/ws` 處理 JSON RPC（send/response + event push），`/ws/audio` 專門傳 binary PCM，避免 head-of-line blocking。
+### Dual WebSocket
+`/ws` handles JSON RPC (request/response + event push). `/ws/audio` carries binary PCM only, avoiding head-of-line blocking on the control channel.
 
 ### useBackend module-level singleton
 ```typescript
@@ -64,28 +64,28 @@ export function useBackend() {
   return _singleton
 }
 ```
-所有元件共用同一條 WS 與事件 bus。多 instance 會導致連線重複、各自 reconnect、狀態互相覆寫。
+All components share one WebSocket and one event bus. Multiple instances cause duplicate connections and state conflicts.
 
-### MLX subprocess 隔離
-`mlx_whisper` 在 `ProcessPoolExecutor(max_workers=1)` 內執行。Metal GPU crash 只殺 worker subprocess，主 backend process 捕捉 `BrokenProcessPool` 後自動重建 executor，不影響錄音。
+### MLX subprocess isolation
+`mlx_whisper` runs inside `ProcessPoolExecutor(max_workers=1)`. Metal GPU crashes only kill the worker subprocess; the main backend process catches `BrokenProcessPool` and rebuilds the executor automatically.
 
-### 雙軌 per-track 獨立狀態
+### Per-track independent state
 ```
-_TrackBuf: PCM buffer / VAD iterator / overlap buffer（push_pcm 側）
-_TrackCtx: rolling context / 語言 sticky / 語速統計 / segments（_asr_worker 側）
+_TrackBuf: PCM buffer / VAD iterator / overlap buffer  (push_pcm side)
+_TrackCtx: rolling context / language sticky / speech-rate stats / segments  (_asr_worker side)
 ```
-混音模式只用 track 0；分軌模式 track 0=你（mic）/ track 1=對方（system audio），各自不互相污染。
+Mixed mode uses track 0 only. Dual-track mode uses track 0 (mic/you) and track 1 (system audio/other), each fully isolated.
 
-### 六層反幻覺過濾
-1. `no_speech_prob > 0.9` 丟棄；`0.5 < nsp ≤ 0.9` 且文字 < 4 字丟棄
-2. 語言白名單（`zh/en/yue`），白名單外偵測結果視為雜訊
-3. 動態語速上限：`mean + 5σ`（冷啟動 30 字/秒），硬上限 50 字/秒
-4. Rolling context 字面重複比對（跨語言合併所有桶，防迴圈幻覺）
-5. `_enforce_chronological`：時間戳重疊整段平移，保留 duration 不丟文字
-6. Chunk 內相同 segment ≥ 3 次 → 整 chunk 丟棄
+### Six-layer hallucination filter
+1. `no_speech_prob > 0.9` → discard; `0.5 < nsp ≤ 0.9` and text < 4 chars → discard
+2. Language whitelist (`zh/en/yue`); detections outside the whitelist treated as noise
+3. Dynamic speech-rate ceiling: `mean + 5σ` (cold-start: 30 chars/s), hard limit 50 chars/s
+4. Rolling-context substring dedup (all language buckets merged to catch loop hallucinations)
+5. `_enforce_chronological`: timestamp overlaps shifted forward, preserving duration and text
+6. Repeated segment ≥ 3 times in one chunk → whole chunk discarded
 
-### line_id 穩定回綁機制
-每個 emit 出去的 segment 分配 monotonic `line_id` + `is_complete=true`。LLM 校正、Breeze 終版校正皆以 `line_id` 回綁，前端不依賴陣列 index，合併多行時以 `line_ids[]` 表達範圍。
+### line_id stable binding
+Every emitted segment receives a monotonic `line_id` + `is_complete=true`. LLM correction and Breeze final correction both bind results back via `line_id`; the frontend never relies on array index. Multi-line merges use `line_ids[]` to express the range.
 
 ---
 
@@ -93,57 +93,56 @@ _TrackCtx: rolling context / 語言 sticky / 語速統計 / segments（_asr_work
 
 ### Electron / TypeScript
 
-| 檔案 | 職責 |
-|------|------|
-| `src/main/index.ts` | 視窗管理、media/display-media 權限、DisplayMedia loopback handler |
-| `src/main/backend.ts` | spawn Python backend、health polling、graceful kill（process group）|
-| `src/preload/index.ts` | contextBridge：`getBackendInfo / pickOutputDir / openPath / requestMicAccess` |
-| `src/renderer/src/App.vue` | 全部 UI + 多來源音訊擷取 + 雙軌 ChannelMerger |
-| `src/renderer/src/composables/useBackend.ts` | module-level singleton WS + JSON RPC + event bus |
-| `src/renderer/src/components/SettingsDialog.vue` | 設定中心 UI |
+| File | Responsibility |
+|------|---------------|
+| `src/main/index.ts` | Window management, media/display-media permissions, DisplayMedia loopback handler |
+| `src/main/backend.ts` | Spawn Python backend, health polling, graceful kill (process group) |
+| `src/preload/index.ts` | contextBridge: `getBackendInfo / pickOutputDir / openPath / requestMicAccess` |
+| `src/renderer/src/App.vue` | Full UI + multi-source audio capture + dual-track ChannelMerger |
+| `src/renderer/src/composables/useBackend.ts` | Module-level singleton WS + JSON RPC + event bus |
+| `src/renderer/src/components/SettingsDialog.vue` | Settings UI with local model download flow |
 
 ### Python Backend
 
-| 檔案 | 職責 |
-|------|------|
-| `backend/meeting_minutes_backend/app.py` | FastAPI；`/ws` + `/ws/audio` + message dispatch |
-| `backend/meeting_minutes_backend/__main__.py` | 父程序 watchdog（ppid 變 1 → os._exit）|
-| `backend/meeting_minutes_backend/stream_service.py` | PCM 累積、VAD 切句、ASR 編排、反幻覺、line_id 分配 |
-| `backend/meeting_minutes_backend/faster_asr.py` | MLX / faster-whisper live ASR；ProcessPoolExecutor 管理 |
-| `backend/meeting_minutes_backend/asr.py` | Breeze-ASR-25 終版校正（HuggingFace Transformers）|
-| `backend/meeting_minutes_backend/correction_worker.py` | LLM 即時校正 worker（GGUF 或 API）|
-| `backend/meeting_minutes_backend/settings.py` | schema-driven 設定系統（30+ 參數）|
-| `backend/meeting_minutes_backend/itn.py` | 中文 ITN（百分比/電話/日期/時間/數字）|
-| `backend/meeting_minutes_backend/transcript.py` | JSON/TXT 序列化 |
-| `backend/meeting_minutes_backend/summarizer.py` | OpenAI-compatible API 摘要生成 |
-| `backend/meeting_minutes_backend/ipc.py` | WebSocket envelope（make_response/make_error/make_event）|
-| `backend/meeting_minutes_backend/glossary_miner.py` | 從校正結果學習新術語 |
+| File | Responsibility |
+|------|---------------|
+| `backend/meeting_minutes_backend/app.py` | FastAPI; `/ws` + `/ws/audio` + message dispatch |
+| `backend/meeting_minutes_backend/__main__.py` | Parent-process watchdog (ppid change → os._exit) |
+| `backend/meeting_minutes_backend/stream_service.py` | PCM accumulation, VAD segmentation, ASR orchestration, hallucination filtering, line_id assignment |
+| `backend/meeting_minutes_backend/faster_asr.py` | MLX / faster-whisper live ASR; ProcessPoolExecutor management |
+| `backend/meeting_minutes_backend/asr.py` | Breeze-ASR-25 final correction (HuggingFace Transformers) |
+| `backend/meeting_minutes_backend/correction_worker.py` | LLM real-time correction worker (GGUF or API); model download helpers |
+| `backend/meeting_minutes_backend/settings.py` | Schema-driven settings system (30+ parameters) |
+| `backend/meeting_minutes_backend/itn.py` | Chinese ITN (percentages, phones, dates, times, numbers) |
+| `backend/meeting_minutes_backend/transcript.py` | JSON/TXT serialization |
+| `backend/meeting_minutes_backend/summarizer.py` | OpenAI / Anthropic API meeting summary generation |
+| `backend/meeting_minutes_backend/ipc.py` | WebSocket envelope helpers (make_response / make_error / make_event) |
+| `backend/meeting_minutes_backend/glossary_miner.py` | Learn new terms from correction diffs |
 
 ---
 
 ## Settings Reference
 
-設定持久化於 `data/settings.json`（gitignored），透過 UI 或直接編輯 JSON 均可。
-錄音中變更不影響當次，下次「開始收音」時生效。
+Settings are persisted in `data/settings.json` (gitignored). Changes take effect on the next **Start Recording**.
 
-| 群組 | 關鍵參數 | 說明 |
-|------|----------|------|
-| ASR | `asr.no_speech_threshold` | Whisper no_speech_prob 過濾上限 |
-| VAD | `vad.speech_threshold`、`vad.force_flush_seconds` | Silero VAD 閾值、強制切句上限 |
-| 語言 | `lang.whitelist`、`lang.switch_confirm` | 接受語言白名單、切換確認次數 |
-| 速率 | `rate.fallback`、`rate.sigma`、`rate.hard_limit` | 反幻覺語速閾值 |
-| LLM 校正 | `correction.backend`、`correction.api_key`、`correction.api_model` | `local` 或 `api` |
-| 預覽 | `preview.window_seconds`、`preview.interval_seconds` | 滾動預覽視窗與觸發間隔 |
+| Group | Key parameters | Description |
+|-------|---------------|-------------|
+| ASR | `asr.no_speech_threshold` | Whisper no_speech_prob filter ceiling |
+| VAD | `vad.speech_threshold`, `vad.force_flush_seconds` | Silero VAD threshold; forced flush interval |
+| Language | `lang.whitelist`, `lang.switch_confirm` | Accepted language codes; switch confirmation count |
+| Rate | `rate.fallback`, `rate.sigma`, `rate.hard_limit` | Hallucination speech-rate thresholds |
+| LLM | `correction.backend`, `correction.api_key`, `correction.api_model`, `correction.api_format` | `local` or `api`; wire format: `openai` or `anthropic` |
+| Preview | `preview.window_seconds`, `preview.interval_seconds` | Rolling preview window and trigger interval |
 
-完整參數說明請開啟 App → ⚙️ 設定 → 進階。
+Full parameter descriptions: open **⚙️ Settings → Advanced** in the app.
 
 ---
 
 ## Known Limitations
 
-- **macOS only**：`audio: 'loopback'`（getDisplayMedia 系統音效）與 MLX 加速僅在 macOS 驗證。
-- **無認證**：單使用者本地工具設計，backend 僅監聽 127.0.0.1。
-- **設定非熱套用**：設定變更需重新「開始錄音」才生效（刻意設計，避免錄音中狀態混亂）。
-- **getDisplayMedia 需每次授權**：無法持久化系統音效權限。
-- **MLX 冷啟動約 9 秒**：已用背景暖機抵銷，前端以 `stream.asr_ready` 輪詢等待。
-- **非 Apple Silicon**：fallback 至 faster-whisper CPU，速度較慢，`LIVE_ASR_MODEL=small` 建議。
+- **macOS only** — `audio: 'loopback'` (getDisplayMedia system audio) and MLX acceleration are macOS-specific.
+- **No authentication** — single-user local tool; backend binds to `127.0.0.1` only.
+- **Settings not hot-applied** — changes take effect on the next recording session (by design, to avoid mid-session state inconsistency).
+- **getDisplayMedia requires re-authorization each session** — system audio permission cannot be persisted.
+- **MLX cold-start ~9 s** — mitigated by background warmup; frontend polls `stream.asr_ready` before starting.
+- **Non-Apple-Silicon** — falls back to faster-whisper on CPU; `LIVE_ASR_MODEL=small` recommended.

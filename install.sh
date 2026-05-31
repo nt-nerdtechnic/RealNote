@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# 會議記錄 ASR — 安裝程式
-# 用法：bash install.sh
+# RealNote — Installer
+# Usage: bash install.sh
 
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# ─── 配色（深色簡約） ──────────────────────────────────────────
+# ─── Colors ───────────────────────────────────────────────────
 BOLD='\033[1m'
 DIM='\033[2m'
 RED='\033[91m'
@@ -14,7 +14,7 @@ GRN='\033[92m'
 YLW='\033[93m'
 NC='\033[0m'
 
-# ─── 工具函式 ──────────────────────────────────────────────────
+# ─── Helpers ──────────────────────────────────────────────────
 ok()   { printf "  ${GRN}✓${NC}  %s\n" "$*"; }
 fail() { printf "  ${RED}✗${NC}  %s\n" "$*"; ERRORS+=("$*"); }
 warn() { printf "  ${YLW}!${NC}  %s\n" "$*"; }
@@ -48,45 +48,45 @@ run_spinner() {
 
 ERRORS=()
 
-# ─── 標頭 ─────────────────────────────────────────────────────
+# ─── Header ───────────────────────────────────────────────────
 clear
 printf "${BOLD}"
 printf '╔══════════════════════════════════════════════╗\n'
-printf '║  會議記錄 ASR  —  安裝程式                   ║\n'
+printf '║  RealNote  —  Installer                      ║\n'
 printf '╚══════════════════════════════════════════════╝\n'
 printf "${NC}\n"
 
 # ──────────────────────────────────────────────────────────────
-section "系統環境"
+section "System"
 
 # macOS
 macos_ver=$(sw_vers -productVersion 2>/dev/null || echo "unknown")
 ok "macOS $macos_ver"
 
-# 磁碟空間（至少 5 GB）
+# Disk space (at least 5 GB)
 free_gb=$(df -g "$HOME" 2>/dev/null | awk 'NR==2{print $4}')
 if [[ -n "$free_gb" && "$free_gb" -ge 5 ]]; then
-  ok "磁碟空間充足（${free_gb} GB 可用）"
+  ok "Disk space OK (${free_gb} GB free)"
 else
-  warn "磁碟空間不足（${free_gb:-?} GB），建議至少 5 GB"
+  warn "Low disk space (${free_gb:-?} GB); 5 GB+ recommended"
 fi
 
 # Xcode CLT
 if xcode-select -p &>/dev/null; then
   ok "Xcode Command Line Tools"
 else
-  fail "Xcode CLT 未安裝 → 請執行：xcode-select --install"
+  fail "Xcode CLT missing → run: xcode-select --install"
 fi
 
 # Homebrew
 if command -v brew &>/dev/null; then
   ok "Homebrew $(brew --version 2>/dev/null | head -1 | awk '{print $2}')"
 else
-  fail "Homebrew 未安裝 → https://brew.sh"
+  fail "Homebrew not found → https://brew.sh"
 fi
 
 # ──────────────────────────────────────────────────────────────
-section "系統套件"
+section "System Packages"
 
 _brew_pkg() {
   local pkg="$1" desc="$2" cask="${3:-}"
@@ -100,37 +100,37 @@ _brew_pkg() {
     if run_spinner "$desc" $install_cmd "$pkg"; then
       : # ok already printed by spinner
     else
-      fail "$desc 安裝失敗"
+      fail "$desc installation failed"
     fi
   fi
 }
 
-_brew_pkg "ffmpeg"        "ffmpeg（音訊轉檔）"
-_brew_pkg "blackhole-2ch" "BlackHole 2ch（虛擬音訊）" cask
+_brew_pkg "ffmpeg"        "ffmpeg (audio processing)"
+_brew_pkg "blackhole-2ch" "BlackHole 2ch (virtual audio)" cask
 
 # ──────────────────────────────────────────────────────────────
-section "音訊裝置"
+section "Audio Devices"
 
 if system_profiler SPAudioDataType 2>/dev/null | grep -qi "BlackHole"; then
-  ok "BlackHole 2ch 已在音訊裝置清單"
+  ok "BlackHole 2ch detected in audio devices"
 else
-  warn "BlackHole 裝置未偵測到（已安裝但可能需重開機）"
-  warn "重開機後若仍無效，請開啟「Audio MIDI Setup」手動確認"
+  warn "BlackHole not detected (installed but may need a reboot)"
+  warn "If still missing after reboot, open Audio MIDI Setup to verify"
 fi
 
-# 檢查是否已有 Multi-Output Device（BlackHole + 喇叭）
+# Check for Multi-Output Device (BlackHole + speakers)
 if system_profiler SPAudioDataType 2>/dev/null | grep -qi "Multi-Output\|Multi Output"; then
-  ok "Multi-Output Device 已設定"
+  ok "Multi-Output Device configured"
 else
-  info "建議在 Audio MIDI Setup 建立 Multi-Output Device"
-  info "（BlackHole 2ch + 內建喇叭），讓錄音時仍可聽到聲音"
-  info "路徑：應用程式 → 工具程式 → Audio MIDI Setup"
+  info "Recommended: create a Multi-Output Device in Audio MIDI Setup"
+  info "(BlackHole 2ch + Built-in Output) to hear audio while recording"
+  info "Path: Applications → Utilities → Audio MIDI Setup"
 fi
 
 # ──────────────────────────────────────────────────────────────
 section "Node.js / pnpm"
 
-# nvm 可能未載入，嘗試手動 source
+# nvm may not be loaded in non-interactive shells — try sourcing manually
 if ! command -v node &>/dev/null; then
   [[ -s "$HOME/.nvm/nvm.sh" ]] && source "$HOME/.nvm/nvm.sh" 2>/dev/null || true
 fi
@@ -138,24 +138,24 @@ fi
 if command -v node &>/dev/null; then
   ok "Node.js $(node --version)"
 else
-  fail "Node.js 未安裝 → 建議安裝 nvm：https://github.com/nvm-sh/nvm"
+  fail "Node.js not found → install via nvm: https://github.com/nvm-sh/nvm"
 fi
 
 if command -v pnpm &>/dev/null; then
   ok "pnpm $(pnpm --version)"
 else
-  info "pnpm 未安裝  → 安裝中..."
+  info "pnpm not found → installing..."
   if npm install -g pnpm &>/dev/null 2>&1; then
     ok "pnpm $(pnpm --version)"
   else
-    fail "pnpm 安裝失敗（npm install -g pnpm）"
+    fail "pnpm installation failed (npm install -g pnpm)"
   fi
 fi
 
 # ──────────────────────────────────────────────────────────────
 section "Python / uv"
 
-# 尋找 Python 3.12
+# Find Python 3.10+
 PY3=""
 for py in python3.12 python3 python; do
   if command -v "$py" &>/dev/null; then
@@ -168,65 +168,65 @@ for py in python3.12 python3 python; do
     fi
   fi
 done
-[[ -z "$PY3" ]] && fail "未找到 Python 3.10+（建議：brew install python@3.12）"
+[[ -z "$PY3" ]] && fail "Python 3.10+ not found (recommended: brew install python@3.12)"
 
 if command -v uv &>/dev/null; then
   ok "uv $(uv --version 2>/dev/null | awk '{print $2}')"
 else
-  info "uv 未安裝  → 安裝中..."
+  info "uv not found → installing..."
   if brew install uv &>/dev/null 2>&1; then
     ok "uv $(uv --version 2>/dev/null | awk '{print $2}')"
   else
-    fail "uv 安裝失敗（brew install uv）"
+    fail "uv installation failed (brew install uv)"
   fi
 fi
 
 # ──────────────────────────────────────────────────────────────
-section "前端依賴"
+section "Frontend Dependencies"
 
 cd "$SCRIPT_DIR"
 if [[ -d node_modules && -f pnpm-lock.yaml ]]; then
-  ok "node_modules 已存在"
+  ok "node_modules already exists"
 else
   if run_spinner "pnpm install" pnpm install; then
     :
   else
-    fail "pnpm install 失敗"
+    fail "pnpm install failed"
   fi
 fi
 
 # ──────────────────────────────────────────────────────────────
-section "後端依賴（Python venv）"
+section "Backend Dependencies (Python venv)"
 
 if [[ -d "$SCRIPT_DIR/backend/.venv" ]]; then
-  ok "backend/.venv 已存在"
+  ok "backend/.venv already exists"
 else
-  if run_spinner "uv sync（建立 .venv + 安裝套件）" \
+  if run_spinner "uv sync (create .venv + install packages)" \
        uv sync --project "$SCRIPT_DIR/backend"; then
     :
   else
-    fail "uv sync 失敗"
+    fail "uv sync failed"
   fi
 fi
 
-# 驗證關鍵套件
+# Verify key packages
 VENV_PY="$SCRIPT_DIR/backend/.venv/bin/python3"
 if [[ -x "$VENV_PY" ]]; then
   for pkg in mlx_whisper faster_whisper silero_vad; do
     if "$VENV_PY" -c "import $pkg" &>/dev/null 2>&1; then
       ok "$pkg"
     else
-      fail "$pkg 未安裝（執行 uv sync --project backend 修復）"
+      fail "$pkg not installed (run: uv sync --project backend)"
     fi
   done
 else
-  warn "找不到 backend/.venv/bin/python3，跳過套件驗證"
+  warn "backend/.venv/bin/python3 not found, skipping package check"
 fi
 
 # ──────────────────────────────────────────────────────────────
-section "語音辨識模型（MLX Whisper）"
+section "ASR Models (MLX Whisper)"
 
-# 取得 HuggingFace 快取路徑
+# Resolve HuggingFace cache path
 HF_CACHE=$("$VENV_PY" -c \
   "from huggingface_hub import constants; print(constants.HF_HUB_CACHE)" \
   2>/dev/null || echo "$HOME/.cache/huggingface/hub")
@@ -235,47 +235,47 @@ MLX_MODEL="mlx-community/whisper-medium-mlx-q4"
 MLX_CACHE_DIR="$HF_CACHE/models--mlx-community--whisper-medium-mlx-q4"
 
 if [[ -d "$MLX_CACHE_DIR" ]]; then
-  ok "whisper-medium-mlx-q4（已快取）"
+  ok "whisper-medium-mlx-q4 (cached)"
 else
-  if run_spinner "下載 $MLX_MODEL（~400 MB）" \
+  if run_spinner "Downloading $MLX_MODEL (~400 MB)" \
        "$VENV_PY" -c "
 from huggingface_hub import snapshot_download
 snapshot_download('$MLX_MODEL')
 "; then
     :
   else
-    fail "模型下載失敗，請確認網路連線後重試"
+    fail "Model download failed — check your internet connection and retry"
   fi
 fi
 
-# Tiny 預覽模型
+# Tiny preview model
 MLX_TINY_CACHE="$HF_CACHE/models--mlx-community--whisper-tiny-mlx-q4"
 if [[ -d "$MLX_TINY_CACHE" ]]; then
-  ok "whisper-tiny-mlx-q4（預覽用，已快取）"
+  ok "whisper-tiny-mlx-q4 (preview model, cached)"
 else
-  if run_spinner "下載 whisper-tiny-mlx-q4（~40 MB）" \
+  if run_spinner "Downloading whisper-tiny-mlx-q4 (~40 MB)" \
        "$VENV_PY" -c "
 from huggingface_hub import snapshot_download
 snapshot_download('mlx-community/whisper-tiny-mlx-q4')
 "; then
     :
   else
-    warn "tiny 模型下載失敗（非必要，可稍後重試）"
+    warn "tiny model download failed (optional, can retry later)"
   fi
 fi
 
 # ──────────────────────────────────────────────────────────────
-section "環境設定"
+section "Configuration"
 
 if [[ -f "$SCRIPT_DIR/.env" ]]; then
-  ok ".env 已存在"
+  ok ".env already exists"
 else
   if [[ -f "$SCRIPT_DIR/.env.example" ]]; then
     cp "$SCRIPT_DIR/.env.example" "$SCRIPT_DIR/.env"
-    ok ".env 已從 .env.example 建立"
-    warn "如需 LLM 摘要功能，請在 .env 填入 OPENAI_API_KEY"
+    ok ".env created from .env.example"
+    warn "For LLM summary, set OPENAI_API_KEY in .env (optional)"
   else
-    warn ".env.example 不存在，請手動建立 .env"
+    warn ".env.example not found — create .env manually"
   fi
 fi
 
@@ -284,14 +284,14 @@ printf "\n"
 if [[ ${#ERRORS[@]} -eq 0 ]]; then
   printf "${BOLD}"
   printf '╔══════════════════════════════════════════════╗\n'
-  printf '║  安裝完成                                    ║\n'
+  printf '║  Installation complete                        ║\n'
   printf '╚══════════════════════════════════════════════╝\n'
   printf "${NC}\n"
-  printf "  啟動：${BOLD}pnpm dev${NC}\n\n"
+  printf "  Start the app: ${BOLD}pnpm dev${NC}\n\n"
 else
   printf "${RED}${BOLD}"
   printf '╔══════════════════════════════════════════════╗\n'
-  printf '║  安裝未完成，請修正以下問題後重新執行        ║\n'
+  printf '║  Installation incomplete — fix issues below  ║\n'
   printf '╚══════════════════════════════════════════════╝\n'
   printf "${NC}\n"
   for e in "${ERRORS[@]}"; do

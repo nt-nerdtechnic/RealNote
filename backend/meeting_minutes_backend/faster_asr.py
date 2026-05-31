@@ -39,14 +39,14 @@ def _register_executor(executor) -> None:
 
 def _hard_kill_executor(executor) -> None:
     """先 graceful shutdown，再對殘存的 worker subprocess 強殺。"""
+    # 必須在 shutdown() 前取 PIDs：shutdown(wait=False) 會清空 _processes dict
+    procs = getattr(executor, "_processes", None) or {}
+    pids = [getattr(p, "pid", None) for p in list(procs.values())]
     try:
         executor.shutdown(wait=False, cancel_futures=True)
     except Exception:
         pass
-    # 取 executor 內部記錄的 worker pid，強殺避免變孤兒
-    procs = getattr(executor, "_processes", None) or {}
-    for proc in list(procs.values()):
-        pid = getattr(proc, "pid", None)
+    for pid in pids:
         if pid:
             try:
                 os.kill(pid, signal.SIGKILL)

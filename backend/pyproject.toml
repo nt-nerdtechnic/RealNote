@@ -21,9 +21,9 @@ dependencies = [
     "opencc-python-reimplemented>=0.1.7",
     "mlx-whisper>=0.4.3",
     "silero-vad>=5.1",
-    "llama-cpp-python>=0.3.0",     # LLM 即時校正 — 內嵌 llama.cpp，預設 Metal 加速
-    "huggingface-hub",              # 下載 GGUF 模型到本機快取（與 Whisper 共用快取）
-    "httpx",                        # 通用 HTTP（多處已用，明確列入）
+    "llama-cpp-python>=0.3.0",     # real-time LLM correction — embeds llama.cpp with Metal acceleration
+    "huggingface-hub",              # download GGUF models to local cache (shared with Whisper cache)
+    "httpx",                        # generic HTTP client (used in multiple places)
 ]
 
 [build-system]
