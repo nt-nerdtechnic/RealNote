@@ -186,7 +186,7 @@ const streamState = ref<StreamState>({
   error: null
 })
 
-const APP_VERSION = '0.4.1'
+const APP_VERSION = '0.4.2'
 
 // ---------------------------------------------------------------------------
 // LLM 可用狀態（連線後讀一次 settings，錄音前就能顯示）
@@ -195,17 +195,23 @@ interface LlmStatus {
   backend: 'local' | 'api'
   hasKey: boolean
   model: string
+  modelCached?: boolean   // local 模式：GGUF 是否已在 HF 快取
+  modelRepo?: string
+  modelFile?: string
 }
 const llmStatus = ref<LlmStatus | null>(null)
+const modelDownloading = ref(false)
 
 const llmStatusLabel = computed(() => {
   if (!llmStatus.value) return null
-  const { backend, hasKey, model } = llmStatus.value
+  const { backend, hasKey, model, modelCached } = llmStatus.value
   if (backend === 'api') {
     return hasKey
       ? { text: `API · ${model}`, state: 'ok' }
       : { text: 'API key 未設定', state: 'warn' }
   }
+  if (modelDownloading.value) return { text: `下載中…`, state: 'downloading' }
+  if (modelCached === false) return { text: `本地 · 未下載`, state: 'warn' }
   return { text: `本地 · ${model}`, state: 'ok' }
 })
 
@@ -802,18 +808,48 @@ async function fetchLlmStatus(): Promise<void> {
     const bk = (v['correction.backend'] as string) ?? 'local'
     const apiKey = (v['correction.api_key'] as string) ?? ''
     const apiModel = (v['correction.api_model'] as string) ?? 'gpt-4o-mini'
-    const localFile = Array.isArray(v['correction.model_file'])
-      ? String(v['correction.model_file'][0])
-      : 'GGUF'
-    llmStatus.value = {
-      backend: bk === 'api' ? 'api' : 'local',
-      hasKey: apiKey.trim().length > 0,
-      model: bk === 'api' ? apiModel : localFile,
+    const modelRepo = Array.isArray(v['correction.model_repo']) ? String(v['correction.model_repo'][0]) : ''
+    const modelFile = Array.isArray(v['correction.model_file']) ? String(v['correction.model_file'][0]) : 'GGUF'
+
+    if (bk === 'api') {
+      llmStatus.value = { backend: 'api', hasKey: apiKey.trim().length > 0, model: apiModel }
+      return
+    }
+
+    // 本地模式：額外查詢 GGUF 是否已快取
+    llmStatus.value = { backend: 'local', hasKey: false, model: modelFile, modelRepo, modelFile, modelCached: undefined }
+    const cacheResp = await backend.send<{ cached: boolean }>('correction.local_model_status', {
+      model_repo: modelRepo,
+      model_file: modelFile,
+    })
+    if (cacheResp.ok) {
+      llmStatus.value = { ...llmStatus.value, modelCached: cacheResp.payload?.cached ?? false }
     }
   } catch {
     // 讀取失敗不影響其他功能
   }
 }
+
+async function downloadLocalModel(): Promise<void> {
+  if (!llmStatus.value || modelDownloading.value) return
+  const { modelRepo, modelFile } = llmStatus.value
+  if (!modelRepo || !modelFile) return
+  modelDownloading.value = true
+  addLog('開始下載本地 LLM 模型，請稍候（約 1.8 GB）...')
+  await backend.send('correction.local_model_download', { model_repo: modelRepo, model_file: modelFile })
+}
+
+backend.on('correction.local_model_ready', () => {
+  modelDownloading.value = false
+  if (llmStatus.value) llmStatus.value = { ...llmStatus.value, modelCached: true }
+  addLog('本地 LLM 模型下載完成，下次開始收音即可使用')
+})
+
+backend.on('correction.local_model_error', (payload) => {
+  modelDownloading.value = false
+  const event = payload as { error?: string }
+  addLog(`本地 LLM 模型下載失敗：${event.error ?? '未知錯誤'}`)
+})
 
 watch(() => backend.status.value, async (s) => {
   if (s === 'connected') await fetchLlmStatus()
@@ -926,9 +962,9 @@ onUnmounted(() => {
               </small>
             </strong>
           </div>
-          <div v-else-if="llmStatusLabel" class="status-row" :data-llm-state="llmStatusLabel.state">
+          <div v-else-if="llmStatusLabel" class="status-row">
             <span>✨ LLM 校正</span>
-            <strong :class="llmStatusLabel.state === 'warn' ? 'llm-warn' : 'llm-ok'">
+            <strong :class="llmStatusLabel.state === 'warn' ? 'llm-warn' : llmStatusLabel.state === 'downloading' ? 'llm-downloading' : 'llm-ok'">
               {{ llmStatusLabel.text }}
             </strong>
           </div>

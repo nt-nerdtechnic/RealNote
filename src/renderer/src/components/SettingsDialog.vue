@@ -93,8 +93,11 @@ function close(): void {
   emit('close')
 }
 
-watch(() => props.open, (open) => {
-  if (open) loadSettings()
+watch(() => props.open, async (open) => {
+  if (open) {
+    await loadSettings()
+    if (correctionMode.value === 'local') checkLocalModelStatus()
+  }
 })
 
 // 依 section + group 分組
@@ -151,7 +154,56 @@ const correctionMode = computed<'local' | 'api'>(() =>
 function setCorrectionMode(mode: 'local' | 'api') {
   values.value['correction.backend'] = mode
   dirty.value = true
+  if (mode === 'local') checkLocalModelStatus()
 }
+
+// ---------------------------------------------------------------------------
+// 本地模型下載狀態
+// ---------------------------------------------------------------------------
+const localModelCached = ref<boolean | null>(null)   // null = 尚未查詢
+const localModelDownloading = ref(false)
+const localModelError = ref('')
+
+async function checkLocalModelStatus(): Promise<void> {
+  const repo = (values.value['correction.model_repo'] as string[] | undefined)?.[0] ?? ''
+  const file = (values.value['correction.model_file'] as string[] | undefined)?.[0] ?? ''
+  if (!repo || !file) return
+  localModelCached.value = null
+  try {
+    const r = await backend.send<{ cached: boolean }>('correction.local_model_status', {
+      model_repo: repo,
+      model_file: file,
+    })
+    if (r.ok) localModelCached.value = r.payload?.cached ?? false
+  } catch {
+    localModelCached.value = false
+  }
+}
+
+async function triggerDownload(): Promise<void> {
+  const repo = (values.value['correction.model_repo'] as string[] | undefined)?.[0] ?? ''
+  const file = (values.value['correction.model_file'] as string[] | undefined)?.[0] ?? ''
+  if (!repo || !file || localModelDownloading.value) return
+  localModelDownloading.value = true
+  localModelError.value = ''
+  try {
+    await backend.send('correction.local_model_download', { model_repo: repo, model_file: file })
+  } catch (err) {
+    localModelDownloading.value = false
+    localModelError.value = String(err)
+  }
+}
+
+backend.on('correction.local_model_ready', () => {
+  localModelDownloading.value = false
+  localModelCached.value = true
+})
+
+backend.on('correction.local_model_error', (payload) => {
+  localModelDownloading.value = false
+  const ev = payload as { error?: string }
+  localModelError.value = ev.error ?? '下載失敗'
+})
 
 const groupedModel = computed(() => {
   const mode = correctionMode.value
@@ -230,6 +282,32 @@ function groupBy(items: SettingSchema[]): Record<string, SettingSchema[]> {
             class="settings-group"
           >
             <h3 class="group-title">{{ groupName }}</h3>
+
+            <!-- LLM 模型群組底部：本地模式顯示下載狀態 + 按鈕 -->
+            <template v-if="groupName === 'LLM 模型' && correctionMode === 'local'">
+              <div class="settings-field">
+                <label class="field-label">
+                  <span class="field-name">模型狀態</span>
+                </label>
+                <div class="field-input">
+                  <span v-if="localModelCached === null" class="model-status model-status--checking">查詢中…</span>
+                  <span v-else-if="localModelCached" class="model-status model-status--ok">✓ 已下載</span>
+                  <span v-else-if="localModelDownloading" class="model-status model-status--downloading">⏳ 下載中，請勿關閉…</span>
+                  <span v-else class="model-status model-status--missing">⚠ 未下載</span>
+                </div>
+                <p v-if="localModelError" class="field-hint" style="color:#c0832a">{{ localModelError }}</p>
+              </div>
+
+              <div v-if="!localModelCached && !localModelDownloading" class="settings-field">
+                <label class="field-label"><span class="field-name"></span></label>
+                <div class="field-input">
+                  <button class="download-model-btn" @click="triggerDownload">
+                    ⬇ 下載模型（~1.8 GB）
+                  </button>
+                </div>
+                <p class="field-hint">Qwen2.5-3B-Instruct Q4_K_M，下載後完全本機執行，不需 API key。</p>
+              </div>
+            </template>
 
             <!-- API 校正群組頂部插入 Provider 快速選單 -->
             <div
@@ -651,5 +729,37 @@ function groupBy(items: SettingSchema[]): Record<string, SettingSchema[]> {
   background: #4f7ef8;
   color: #ffffff;
   font-weight: 600;
+}
+
+.model-status {
+  font-size: 13px;
+  font-weight: 500;
+}
+.model-status--checking  { color: #8a96a3; }
+.model-status--ok        { color: #3c8f5c; }
+.model-status--missing   { color: #c0832a; }
+.model-status--downloading {
+  color: #5b8def;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+.download-model-btn {
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid #4f7ef8;
+  border-radius: 6px;
+  background: #f0f4ff;
+  color: #4f7ef8;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.download-model-btn:hover {
+  background: #4f7ef8;
+  color: #fff;
 }
 </style>

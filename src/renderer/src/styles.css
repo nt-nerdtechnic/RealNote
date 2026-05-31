@@ -231,6 +231,20 @@ button:disabled {
   color: #c0832a;
 }
 
+.llm-downloading {
+  color: #5b8def;
+  animation: correction-pulse 1.4s ease-in-out infinite;
+}
+
+.llm-download-row {
+  margin: 4px 0 8px;
+}
+
+.llm-download-btn {
+  width: 100%;
+  font-size: 13px;
+}
+
 .warming {
   color: #e6a817;
   animation: pulse 1.2s ease-in-out infinite;

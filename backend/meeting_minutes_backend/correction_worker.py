@@ -411,6 +411,33 @@ class SummaryWorker:
 
 
 # ---------------------------------------------------------------------------
+def check_model_cached(repo_id: str, filename: str) -> bool:
+    """回傳本地 GGUF 模型是否已在 HuggingFace 快取中。"""
+    try:
+        from huggingface_hub import try_to_load_from_cache
+        result = try_to_load_from_cache(repo_id=repo_id, filename=filename)
+        return result is not None
+    except Exception:
+        return False
+
+
+def download_model(repo_id: str, filename: str, emit_log: EmitFn) -> bool:
+    """前景下載 GGUF 模型到 HF 快取，完成後回傳 True，失敗回傳 False。
+
+    應在獨立 thread 中呼叫，透過 emit_log 推送進度訊息給前端。
+    """
+    try:
+        from huggingface_hub import hf_hub_download
+        size_gb = 1.8  # Qwen2.5-3B Q4_K_M 約 1.8GB
+        emit_log({"type": "stream.log", "message": f"[correction] 開始下載 {filename}（約 {size_gb:.1f} GB），請勿關閉應用程式..."})
+        path = hf_hub_download(repo_id=repo_id, filename=filename)
+        emit_log({"type": "stream.log", "message": f"[correction] 模型下載完成：{path}"})
+        return True
+    except Exception as err:
+        emit_log({"type": "stream.log", "message": f"[correction] 下載失敗：{err}"})
+        return False
+
+
 class LlamaCppLLM:
     """封裝 llama-cpp-python 載入 + generate。
 

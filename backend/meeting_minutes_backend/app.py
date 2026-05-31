@@ -92,6 +92,32 @@ async def ws_audio(websocket: WebSocket) -> None:
             _active_session.stream.notify_recording_ended()
 
 
+async def _download_model_bg(session: "Session", repo: str, fname: str) -> None:
+    """背景執行 GGUF 模型下載，完成後以 WebSocket 事件通知前端。"""
+    import asyncio as _asyncio
+    import concurrent.futures as _cf
+    from .correction_worker import download_model
+
+    loop = _asyncio.get_running_loop()
+
+    def _emit_log(payload: dict) -> None:
+        _asyncio.run_coroutine_threadsafe(session._send_event(payload), loop)
+
+    def _do_download():
+        return download_model(repo, fname, _emit_log)
+
+    try:
+        with _cf.ThreadPoolExecutor(max_workers=1) as pool:
+            ok = await loop.run_in_executor(pool, _do_download)
+        event_type = "correction.local_model_ready" if ok else "correction.local_model_error"
+        await session.websocket.send_json(make_event(event_type, {"cached": ok}))
+    except Exception as err:
+        try:
+            await session.websocket.send_json(make_event("correction.local_model_error", {"error": str(err)}))
+        except Exception:
+            pass
+
+
 async def _run_summary_bg(session: "Session") -> None:
     """背景執行摘要生成，完成後以 WebSocket 事件通知前端。"""
     result = await session.stream.generate_summary()
@@ -158,6 +184,18 @@ async def handle_message(session: Session, msg: dict[str, Any]) -> None:
             await session.websocket.send_json(make_response(msg_id, msg_type, {"ack": True}))
             import asyncio as _asyncio
             _asyncio.ensure_future(_run_summary_bg(session))
+        elif msg_type == "correction.local_model_status":
+            from .correction_worker import check_model_cached
+            repo = payload.get("model_repo", "")
+            fname = payload.get("model_file", "")
+            cached = check_model_cached(repo, fname) if repo and fname else False
+            await session.websocket.send_json(make_response(msg_id, msg_type, {"cached": cached}))
+        elif msg_type == "correction.local_model_download":
+            repo = payload.get("model_repo", "")
+            fname = payload.get("model_file", "")
+            await session.websocket.send_json(make_response(msg_id, msg_type, {"ack": True}))
+            import asyncio as _asyncio
+            _asyncio.ensure_future(_download_model_bg(session, repo, fname))
         else:
             await session.websocket.send_json(make_error(msg_id, msg_type, f"unknown message: {msg_type}"))
     except Exception as err:  # noqa: BLE001
