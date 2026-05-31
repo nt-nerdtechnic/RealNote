@@ -186,7 +186,28 @@ const streamState = ref<StreamState>({
   error: null
 })
 
-const APP_VERSION = '0.3.9'
+const APP_VERSION = '0.4.0'
+
+// ---------------------------------------------------------------------------
+// LLM 可用狀態（連線後讀一次 settings，錄音前就能顯示）
+// ---------------------------------------------------------------------------
+interface LlmStatus {
+  backend: 'local' | 'api'
+  hasKey: boolean
+  model: string
+}
+const llmStatus = ref<LlmStatus | null>(null)
+
+const llmStatusLabel = computed(() => {
+  if (!llmStatus.value) return null
+  const { backend, hasKey, model } = llmStatus.value
+  if (backend === 'api') {
+    return hasKey
+      ? { text: `API · ${model}`, state: 'ok' }
+      : { text: 'API key 未設定', state: 'warn' }
+  }
+  return { text: `本地 · ${model}`, state: 'ok' }
+})
 
 const isRunning = computed(() =>
   starting.value ||
@@ -773,6 +794,31 @@ function triggerSummaryManually(): void {
   })
 }
 
+async function fetchLlmStatus(): Promise<void> {
+  try {
+    const r = await backend.send<{ values: Record<string, unknown> }>('settings.get')
+    if (!r.ok || !r.payload?.values) return
+    const v = r.payload.values as Record<string, unknown>
+    const bk = (v['correction.backend'] as string) ?? 'local'
+    const apiKey = (v['correction.api_key'] as string) ?? ''
+    const apiModel = (v['correction.api_model'] as string) ?? 'gpt-4o-mini'
+    const localFile = Array.isArray(v['correction.model_file'])
+      ? String(v['correction.model_file'][0])
+      : 'GGUF'
+    llmStatus.value = {
+      backend: bk === 'api' ? 'api' : 'local',
+      hasKey: apiKey.trim().length > 0,
+      model: bk === 'api' ? apiModel : localFile,
+    }
+  } catch {
+    // 讀取失敗不影響其他功能
+  }
+}
+
+watch(() => backend.status.value, async (s) => {
+  if (s === 'connected') await fetchLlmStatus()
+})
+
 onMounted(async () => {
   await refreshDevices()
   _timerHandle = setInterval(() => { nowTs.value = Date.now() }, 500)
@@ -865,7 +911,7 @@ onUnmounted(() => {
             <span>佇列</span>
             <strong>{{ streamState.backlog }}</strong>
           </div>
-          <!-- LLM 校正狀態（僅在啟用時顯示） -->
+          <!-- LLM 狀態：錄音前顯示可用性，錄音中顯示即時校正進度 -->
           <div v-if="streamState.correction?.enabled" class="status-row correction-status">
             <span>
               ✨ LLM 校正
@@ -878,6 +924,12 @@ onUnmounted(() => {
               <small class="correction-pending" v-if="(streamState.correction.queue_size + streamState.correction.buffered) > 0">
                 ({{ streamState.correction.queue_size + streamState.correction.buffered }} 待批)
               </small>
+            </strong>
+          </div>
+          <div v-else-if="llmStatusLabel" class="status-row" :data-llm-state="llmStatusLabel.state">
+            <span>✨ LLM 校正</span>
+            <strong :class="llmStatusLabel.state === 'warn' ? 'llm-warn' : 'llm-ok'">
+              {{ llmStatusLabel.text }}
             </strong>
           </div>
 

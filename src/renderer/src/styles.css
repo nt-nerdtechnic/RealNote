@@ -223,6 +223,14 @@ button:disabled {
   50%      { opacity: 1; }
 }
 
+.llm-ok {
+  color: #3c8f5c;
+}
+
+.llm-warn {
+  color: #c0832a;
+}
+
 .warming {
   color: #e6a817;
   animation: pulse 1.2s ease-in-out infinite;
